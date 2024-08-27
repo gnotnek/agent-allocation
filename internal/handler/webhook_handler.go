@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/gnotnek/agent-allocation/internal/database"
@@ -73,8 +74,8 @@ func hitAssignmentAPI(roomID string, agentID uint) error {
 	}
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Qiscus-App-Id", "AppCode")
-	req.Header.Set("Qiscus-Secret-Key", "SecretKey")
+	req.Header.Set("Qiscus-App-Id", os.Getenv("QISCUS_APP_ID"))
+	req.Header.Set("Qiscus-Secret-Key", os.Getenv("QISCUS_SECRET_KEY"))
 
 	httpClient := &http.Client{}
 	resp, err := httpClient.Do(req)

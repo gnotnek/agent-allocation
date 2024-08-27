@@ -1,15 +1,16 @@
 package main
 
 import (
+	"github.com/gnotnek/agent-allocation/internal/database"
+	"github.com/gnotnek/agent-allocation/internal/routes"
 	"github.com/gofiber/fiber/v2"
 )
 
 func main() {
+	database.InitDB()
 	app := fiber.New()
 
-	app.Get("/", func(c *fiber.Ctx) error {
-		return c.SendString("Hello, World!")
-	})
+	routes.SetupRoutes(app)
 
 	app.Listen(":3000")
 }

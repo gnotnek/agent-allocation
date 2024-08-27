@@ -7,8 +7,12 @@ import (
 )
 
 type WebhookPayload struct {
-	GroupID    string `json:"group_id"`
-	CustomerID string `json:"customer_id"`
+	AppID     string `json:"app_id"`
+	Source    string `json:"source"`
+	Email     string `json:"email"`
+	AvatarURL string `json:"avatar_url"`
+	Extras    string `json:"extras"`
+	RoomID    string `json:"room_id"`
 }
 
 func HandleWebhook(c *fiber.Ctx) error {
@@ -17,11 +21,18 @@ func HandleWebhook(c *fiber.Ctx) error {
 		return c.Status(400).SendString(err.Error())
 	}
 
+	var customer models.Customer
+	database.DB.Where("email = ?", payload.Email).FirstOrCreate(&customer, models.Customer{
+		Email:  payload.Email,
+		Avatar: payload.AvatarURL,
+		RoomID: payload.RoomID,
+		AppID:  payload.AppID,
+		Status: "waiting",
+		Extras: payload.Extras,
+	})
+
 	var agents []models.Agent
 	database.DB.Where("status = ?", "online").Find(&agents)
-	if len(agents) == 0 {
-		return c.Status(404).SendString("No agents available")
-	}
 
 	var selectedAgent *models.Agent
 	for i := range agents {
@@ -38,7 +49,7 @@ func HandleWebhook(c *fiber.Ctx) error {
 
 	newAssigment := models.Assignment{
 		AgentID:    selectedAgent.ID,
-		CustomerID: payload.CustomerID,
+		CustomerID: string(rune(customer.ID)),
 	}
 
 	database.DB.Create(&newAssigment)

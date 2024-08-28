@@ -91,16 +91,15 @@ func HandleWebhook(c *fiber.Ctx) error {
 }
 
 func assignAgentToRoom(payload *WebhookPayload) (uint, error) {
-	if payload.CandidateAgent.IsAvailable {
-		err := hitAssignmentAPI(payload.RoomID, uint(payload.CandidateAgent.ID))
-		if err != nil {
-			return 0, err
-		}
-		return uint(payload.CandidateAgent.ID), nil
+	var customer models.Customer
+	database.DB.Where("status = ?", "waiting").Order("created_at").First(&customer)
+
+	if customer.ID == 0 {
+		return 0, fmt.Errorf("no customer in queue")
 	}
 
 	var selectedAgent models.Agent
-	database.DB.Where("status = ? AND current_customer < max_customer", "online").First(&selectedAgent)
+	database.DB.Where("status = ? AND current_customers < max_customers", "online").First(&selectedAgent)
 
 	if selectedAgent.ID == 0 {
 		return 0, fmt.Errorf("no available agent")
@@ -114,11 +113,14 @@ func assignAgentToRoom(payload *WebhookPayload) (uint, error) {
 	selectedAgent.CurrentCustomer++
 	database.DB.Save(&selectedAgent)
 
+	customer.Status = "served"
+	database.DB.Save(&customer)
+
 	return selectedAgent.ID, nil
 }
 
 func hitAssignmentAPI(roomID string, agentID uint) error {
-	assigAgentURL := "https://multichannel.qiscus.com//api/v1/admin/service/assign_agent"
+	assigAgentURL := "https://multichannel.qiscus.com/api/v1/admin/service/assign_agent"
 
 	data := url.Values{}
 	data.Set("room_id", roomID)
@@ -144,6 +146,38 @@ func hitAssignmentAPI(roomID string, agentID uint) error {
 
 	if resp.StatusCode != 200 {
 		return errors.New("error assigning agent")
+	}
+
+	return nil
+}
+
+func SetMarkAsResolvedWebhook(webhookURL string, appID string, adminToken string, enableWebhook bool) error {
+	markAsResolvedURL := "https://multichannel.qiscus.com/api/v1/app/webhook/mark_as_resolved"
+
+	data := url.Values{}
+	data.Set("webhook_url", webhookURL)
+	if enableWebhook {
+		data.Set("is_webhook_enabled", "true")
+	}
+
+	req, err := http.NewRequest("POST", markAsResolvedURL, strings.NewReader(data.Encode()))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Authorization", adminToken)
+	req.Header.Set("Qiscus-App-Id", appID)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to set mark as resolved webhook, status code: %d", resp.StatusCode)
 	}
 
 	return nil

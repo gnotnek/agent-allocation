@@ -25,6 +25,6 @@ func InitDB() {
 		log.Fatalf("Error connecting to database: %v", err)
 	}
 
-	db.AutoMigrate(&models.Agent{}, &models.Customer{})
+	db.AutoMigrate(&models.Agent{}, &models.Customer{}, &models.Assignment{})
 	DB = db
 }

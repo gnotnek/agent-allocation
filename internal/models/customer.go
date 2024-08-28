@@ -3,12 +3,9 @@ package models
 import "time"
 
 type Customer struct {
-	ID        uint   `json:"id" gorm:"primaryKey"`
-	Email     string `json:"email"`
-	Avatar    string `json:"avatar"`
-	RoomID    string `json:"room_id"`
-	AppID     string `json:"agent_id"`
-	Status    string `json:"status"`
-	Extras    string `gorm:"type:json" json:"extras"`
-	CreatedAt time.Time
+	ID        uint      `gorm:"primaryKey"`
+	Email     string    `gorm:"not null"`
+	RoomID    string    `gorm:"not null"`
+	Status    string    `gorm:"not null"` // waiting, served
+	CreatedAt time.Time // FIFO based on this timestamp
 }

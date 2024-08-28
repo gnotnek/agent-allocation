@@ -1,15 +1,11 @@
 package models
 
-import (
-	"gorm.io/gorm"
-)
-
 type Agent struct {
-	gorm.Model
-	ID              uint   `json:"id" gorm:"primaryKey"`
-	Name            string `json:"name"`
-	Status          string `json:"status"`
-	MaxCustomer     int    `json:"max_customer"`
-	CurrentCustomer int    `json:"current_customer"`
-	Specialization  string `json:"specialization"`
+	ID               uint     `gorm:"primaryKey"`
+	Name             string   `gorm:"not null"`
+	Email            string   `gorm:"unique;not null"`
+	Status           string   `gorm:"not null"` // online, offline
+	MaxCustomers     int      `gorm:"not null"`
+	CurrentCustomers int      `gorm:"not null"`
+	AssignedRules    []string `gorm:"type:text[]"`
 }

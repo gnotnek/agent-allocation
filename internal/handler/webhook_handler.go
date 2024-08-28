@@ -1,12 +1,7 @@
 package handler
 
 import (
-	"errors"
 	"fmt"
-	"net/http"
-	"net/url"
-	"os"
-	"strings"
 
 	"github.com/gnotnek/agent-allocation/internal/database"
 	"github.com/gnotnek/agent-allocation/internal/models"
@@ -50,7 +45,7 @@ type LatestService struct {
 	FirstCommentTimestamp string `json:"first_comment_timestamp"`
 }
 
-type WebhookPayload struct {
+type QiscusWebhookPayload struct {
 	AppID          string         `json:"app_id"`
 	Source         string         `json:"source"`
 	Name           string         `json:"name"`
@@ -63,90 +58,113 @@ type WebhookPayload struct {
 	CandidateAgent CandidateAgent `json:"candidate_agent"`
 }
 
-func HandleWebhook(c *fiber.Ctx) error {
-	payload := new(WebhookPayload)
-
+func HandleAllocateAgent(c *fiber.Ctx) error {
+	payload := new(QiscusWebhookPayload)
 	if err := c.BodyParser(payload); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Cannot parse JSON",
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Cannot parse webhook payload",
 		})
 	}
 
 	if payload.IsResolved {
-		return c.JSON(fiber.Map{
-			"message": "Room is already resolved",
+		return c.Status(200).JSON(fiber.Map{
+			"message": "Webhook is resolved",
 		})
 	}
 
-	assignedAgentID, err := assignAgentToRoom(payload)
-	if err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	if payload.CandidateAgent.IsAvailable {
+		err := customAgentAllocationLogic(payload)
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{
+				"error": err.Error(),
+			})
+		}
 	}
 
-	return c.JSON(fiber.Map{
-		"agent_id": assignedAgentID,
-		"message":  "Agent assigned successfully",
-	})
-
+	return c.JSON(fiber.Map{"message": "Custom agent allocation success"})
 }
 
-func assignAgentToRoom(payload *WebhookPayload) (uint, error) {
+func customAgentAllocationLogic(payload *QiscusWebhookPayload) error {
+	var agent models.Agent
+	database.DB.Where("status = ? AND max_customers > current_customers", "online").Order("created_at ASC").First(&agent)
+	if agent.ID == 0 {
+		return fmt.Errorf("no available agent")
+	}
+
+	err := assignAgentToRoom(payload)
+	if err != nil {
+		return err
+	}
+
+	agent.CurrentCustomers++
+	database.DB.Save(&agent)
+
+	return nil
+}
+
+func assignAgentToRoom(payload *QiscusWebhookPayload) error {
 	var customer models.Customer
-	database.DB.Where("status = ?", "waiting").Order("created_at").First(&customer)
+	database.DB.Where("status = ?", "waiting").Order("created_at ASC").First(&customer)
 
 	if customer.ID == 0 {
-		return 0, fmt.Errorf("no customer in queue")
+		return fmt.Errorf("no waiting customer")
 	}
 
 	var selectedAgent models.Agent
 	database.DB.Where("status = ? AND current_customers < max_customers", "online").First(&selectedAgent)
 
 	if selectedAgent.ID == 0 {
-		return 0, fmt.Errorf("no available agent")
+		return fmt.Errorf("no available agent")
 	}
-
-	err := hitAssignmentAPI(payload.RoomID, selectedAgent.ID)
-	if err != nil {
-		return 0, err
-	}
-
-	selectedAgent.CurrentCustomer++
-	database.DB.Save(&selectedAgent)
 
 	customer.Status = "served"
+	customer.RoomID = payload.RoomID
 	database.DB.Save(&customer)
 
-	return selectedAgent.ID, nil
+	return nil
 }
 
-func hitAssignmentAPI(roomID string, agentID uint) error {
-	assigAgentURL := "https://multichannel.qiscus.com/api/v1/admin/service/assign_agent"
-
-	data := url.Values{}
-	data.Set("room_id", roomID)
-	data.Set("agent_id", fmt.Sprintf("%d", agentID))
-	data.Set("replace_latest_agent", "false")
-	data.Set("max_agent", "1")
-
-	req, err := http.NewRequest("POST", assigAgentURL, strings.NewReader(data.Encode()))
-	if err != nil {
-		return err
+func HandlerMarkAsResolvedWebhook(c *fiber.Ctx) error {
+	payload := new(QiscusWebhookPayload)
+	if err := c.BodyParser(payload); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Cannot parse JSON"})
 	}
 
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Qiscus-App-Id", os.Getenv("QISCUS_APP_ID"))
-	req.Header.Set("Qiscus-Secret-Key", os.Getenv("QISCUS_SECRET"))
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return errors.New("error assigning agent")
+	if !payload.IsResolved {
+		return c.Status(400).JSON(fiber.Map{"error": "Service is not resolved"})
 	}
 
-	return nil
+	// Find the service by RoomID and update its status
+	var service models.Service
+	result := database.DB.Where("room_id = ?", payload.LatestService.RoomID).First(&service)
+
+	if result.Error != nil {
+		// If the service doesn't exist, create a new one
+		service = models.Service{
+			RoomID:          payload.LatestService.RoomID,
+			IsResolved:      payload.LatestService.IsResolved,
+			Notes:           payload.LatestService.Notes,
+			FirstCommentID:  payload.LatestService.FirstCommentID,
+			LastCommentID:   payload.LatestService.LastCommentID,
+			Source:          payload.Source,
+			ResolvedBy:      payload.CandidateAgent.Name,
+			ResolvedByEmail: payload.CandidateAgent.Email,
+		}
+		database.DB.Create(&service)
+	} else {
+		// Update the existing service
+		service.IsResolved = payload.LatestService.IsResolved
+		service.Notes = payload.LatestService.Notes
+		service.FirstCommentID = payload.LatestService.FirstCommentID
+		service.LastCommentID = payload.LatestService.LastCommentID
+		service.Source = payload.Source
+		service.ResolvedBy = payload.CandidateAgent.Name
+		service.ResolvedByEmail = payload.CandidateAgent.Email
+		database.DB.Save(&service)
+	}
+
+	return c.JSON(fiber.Map{
+		"message":    "Service marked as resolved successfully",
+		"service_id": service.ID,
+	})
 }

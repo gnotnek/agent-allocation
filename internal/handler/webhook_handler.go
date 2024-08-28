@@ -150,35 +150,3 @@ func hitAssignmentAPI(roomID string, agentID uint) error {
 
 	return nil
 }
-
-func SetMarkAsResolvedWebhook(webhookURL string, appID string, adminToken string, enableWebhook bool) error {
-	markAsResolvedURL := "https://multichannel.qiscus.com/api/v1/app/webhook/mark_as_resolved"
-
-	data := url.Values{}
-	data.Set("webhook_url", webhookURL)
-	if enableWebhook {
-		data.Set("is_webhook_enabled", "true")
-	}
-
-	req, err := http.NewRequest("POST", markAsResolvedURL, strings.NewReader(data.Encode()))
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Authorization", adminToken)
-	req.Header.Set("Qiscus-App-Id", appID)
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to set mark as resolved webhook, status code: %d", resp.StatusCode)
-	}
-
-	return nil
-}

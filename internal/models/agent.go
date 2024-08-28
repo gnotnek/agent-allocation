@@ -11,4 +11,5 @@ type Agent struct {
 	Status          string `json:"status"`
 	MaxCustomer     int    `json:"max_customer"`
 	CurrentCustomer int    `json:"current_customer"`
+	Specialization  string `json:"specialization"`
 }

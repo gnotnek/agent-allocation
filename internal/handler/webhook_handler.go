@@ -1,12 +1,25 @@
 package handler
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"os"
+	"strconv"
+	"strings"
 
 	"github.com/gnotnek/agent-allocation/internal/database"
 	"github.com/gnotnek/agent-allocation/internal/models"
 	"github.com/gofiber/fiber/v2"
 )
+
+type Agent struct {
+	ID                   int    `json:"id"`
+	Name                 string `json:"name"`
+	Email                string `json:"email"`
+	IsAvailable          bool   `json:"is_available"`
+	CurrentCustomerCount int    `json:"current_customer_count"`
+}
 
 type CandidateAgent struct {
 	ID                  int      `json:"id"`
@@ -61,67 +74,111 @@ type QiscusWebhookPayload struct {
 func HandleAllocateAgent(c *fiber.Ctx) error {
 	payload := new(QiscusWebhookPayload)
 	if err := c.BodyParser(payload); err != nil {
-		return c.Status(400).JSON(fiber.Map{
-			"error": "Cannot parse webhook payload",
-		})
+		return c.Status(400).JSON(fiber.Map{"error": "Cannot parse JSON"})
 	}
 
 	if payload.IsResolved {
-		return c.Status(200).JSON(fiber.Map{
-			"message": "Webhook is resolved",
-		})
+		return c.JSON(fiber.Map{"message": "Conversation is already resolved."})
 	}
 
-	if payload.CandidateAgent.IsAvailable {
-		err := customAgentAllocationLogic(payload)
-		if err != nil {
-			return c.Status(500).JSON(fiber.Map{
-				"error": err.Error(),
-			})
+	// Fetch available agents
+	agents, err := getAvailableAgents(payload.RoomID)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Failed to fetch available agents"})
+	}
+
+	maxCustomers, err := strconv.Atoi(os.Getenv("MAX_CUSTOMERS"))
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Failed to parse MAX_CUSTOMERS from environment"})
+	}
+
+	// Find an agent with less than maxCustomers
+	var selectedAgent Agent
+	for _, agent := range agents {
+		if agent.CurrentCustomerCount < maxCustomers {
+			selectedAgent = agent
+			break
 		}
 	}
 
-	return c.JSON(fiber.Map{"message": "Custom agent allocation success"})
-}
-
-func customAgentAllocationLogic(payload *QiscusWebhookPayload) error {
-	var agent models.Agent
-	database.DB.Where("status = ? AND max_customers > current_customers", "online").Order("created_at ASC").First(&agent)
-	if agent.ID == 0 {
-		return fmt.Errorf("no available agent")
+	if selectedAgent.ID == 0 {
+		// No available agent, add to queue
+		err = addToQueue(payload.RoomID)
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": "Failed to add room to queue"})
+		}
+		return c.JSON(fiber.Map{"message": "Room added to queue"})
 	}
 
-	err := assignAgentToRoom(payload)
+	// Assign the selected agent
+	err = assignAgent(payload.RoomID, selectedAgent.ID)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Failed to assign agent"})
+	}
+
+	return c.JSON(fiber.Map{"message": "Agent assigned successfully", "agent_id": selectedAgent.ID})
+}
+
+func assignAgent(roomID string, agentID int) error {
+	url := fmt.Sprintf("%s/api/v1/admin/service/assign_agent", os.Getenv("QISCUS_BASE_URL"))
+	data := fmt.Sprintf("room_id=%s&agent_id=%d&replace_latest_agent=true", roomID, agentID)
+
+	req, err := http.NewRequest("POST", url, strings.NewReader(data))
 	if err != nil {
 		return err
 	}
 
-	agent.CurrentCustomers++
-	database.DB.Save(&agent)
+	req.Header.Set("Qiscus-App-Id", os.Getenv("QISCUS_APP_ID"))
+	req.Header.Set("Qiscus-Secret-Key", os.Getenv("QISCUS_SECRET_KEY"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to assign agent, status code: %d", resp.StatusCode)
+	}
+
+	// Increase the agent's active room count
+	err = updateAgentRoomCount(agentID, 1)
+	if err != nil {
+		return fmt.Errorf("failed to update agent's room count: %v", err)
+	}
 
 	return nil
 }
 
-func assignAgentToRoom(payload *QiscusWebhookPayload) error {
-	var customer models.Customer
-	database.DB.Where("status = ?", "waiting").Order("created_at ASC").First(&customer)
-
-	if customer.ID == 0 {
-		return fmt.Errorf("no waiting customer")
+func getAvailableAgents(roomID string) ([]Agent, error) {
+	url := fmt.Sprintf("%s/api/v2/admin/service/available_agents?room_id=%s&is_availalble_in_room=true", os.Getenv("QISCUS_BASE_URL"), roomID)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
 	}
 
-	var selectedAgent models.Agent
-	database.DB.Where("status = ? AND current_customers < max_customers", "online").First(&selectedAgent)
+	req.Header.Set("Qiscus-App-Id", os.Getenv("QISCUS_APP_ID"))
+	req.Header.Set("Qiscus-Secret-Key", os.Getenv("QISCUS_SECRET_KEY"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	if selectedAgent.ID == 0 {
-		return fmt.Errorf("no available agent")
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Data []Agent `json:"data"`
+	}
+	err = json.NewDecoder(resp.Body).Decode(&result)
+	if err != nil {
+		return nil, err
 	}
 
-	customer.Status = "served"
-	customer.RoomID = payload.RoomID
-	database.DB.Save(&customer)
-
-	return nil
+	return result.Data, nil
 }
 
 func HandlerMarkAsResolvedWebhook(c *fiber.Ctx) error {
@@ -134,37 +191,85 @@ func HandlerMarkAsResolvedWebhook(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "Service is not resolved"})
 	}
 
-	// Find the service by RoomID and update its status
-	var service models.Service
-	result := database.DB.Where("room_id = ?", payload.LatestService.RoomID).First(&service)
-
-	if result.Error != nil {
-		// If the service doesn't exist, create a new one
-		service = models.Service{
-			RoomID:          payload.LatestService.RoomID,
-			IsResolved:      payload.LatestService.IsResolved,
-			Notes:           payload.LatestService.Notes,
-			FirstCommentID:  payload.LatestService.FirstCommentID,
-			LastCommentID:   payload.LatestService.LastCommentID,
-			Source:          payload.Source,
-			ResolvedBy:      payload.CandidateAgent.Name,
-			ResolvedByEmail: payload.CandidateAgent.Email,
-		}
-		database.DB.Create(&service)
-	} else {
-		// Update the existing service
-		service.IsResolved = payload.LatestService.IsResolved
-		service.Notes = payload.LatestService.Notes
-		service.FirstCommentID = payload.LatestService.FirstCommentID
-		service.LastCommentID = payload.LatestService.LastCommentID
-		service.Source = payload.Source
-		service.ResolvedBy = payload.CandidateAgent.Name
-		service.ResolvedByEmail = payload.CandidateAgent.Email
-		database.DB.Save(&service)
+	// Decrease the agent's active room count
+	err := updateAgentRoomCount(payload.CandidateAgent.ID, -1)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Failed to update agent's room count"})
 	}
 
-	return c.JSON(fiber.Map{
-		"message":    "Service marked as resolved successfully",
-		"service_id": service.ID,
-	})
+	// Assign the next room in the queue
+	err = assignNextRoomInQueue()
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Failed to assign the next room in queue"})
+	}
+
+	return c.JSON(fiber.Map{"message": "Service marked as resolved successfully"})
+}
+
+func updateAgentRoomCount(agentID int, delta int) error {
+	agentRoomCount := make(map[int]int)
+
+	// Update the agent's room count
+	agentRoomCount[agentID] += delta
+
+	if agentRoomCount[agentID] < 0 {
+		agentRoomCount[agentID] = 0
+	}
+
+	return nil
+}
+
+func addToQueue(roomID string) error {
+	var count int64
+	database.DB.Model(&models.RoomQueue{}).Where("room_id = ?", roomID).Count(&count)
+	if count > 0 {
+		return nil
+	}
+
+	var max int
+	database.DB.Model(&models.RoomQueue{}).Select("COALESCE(MAX(position), 0)").Scan(&max)
+
+	roomQueue := models.RoomQueue{
+		RoomID:   roomID,
+		Position: max + 1,
+	}
+
+	return database.DB.Create(&roomQueue).Error
+}
+
+func assignNextRoomInQueue() error {
+	var queue models.RoomQueue
+	result := database.DB.Order("position").First(&queue).Error
+	if result != nil {
+		return result
+	}
+
+	// Fetch available agents
+	agents, err := getAvailableAgents(queue.RoomID)
+	if err != nil {
+		return err
+	}
+
+	maxCustomers, err := strconv.Atoi(os.Getenv("MAX_CUSTOMERS"))
+	if err != nil {
+		return err
+	}
+	var selectedAgent Agent
+	for _, agent := range agents {
+		if agent.CurrentCustomerCount < maxCustomers {
+			selectedAgent = agent
+			break
+		}
+	}
+
+	if selectedAgent.ID == 0 {
+		return nil
+	}
+
+	err = assignAgent(queue.RoomID, selectedAgent.ID)
+	if err != nil {
+		return err
+	}
+
+	return database.DB.Delete(&queue).Error
 }

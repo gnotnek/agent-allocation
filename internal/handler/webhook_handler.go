@@ -71,6 +71,28 @@ type QiscusWebhookPayload struct {
 	CandidateAgent CandidateAgent `json:"candidate_agent"`
 }
 
+type MarkAsResolvedPayload struct {
+	Service struct {
+		ID             int     `json:"id"`
+		RoomID         string  `json:"room_id"`
+		IsResolved     bool    `json:"is_resolved"`
+		Notes          *string `json:"notes"` // Nullable field
+		FirstCommentID string  `json:"first_comment_id"`
+		LastCommentID  int     `json:"last_comment_id"`
+		Source         string  `json:"source"`
+	} `json:"service"`
+	ResolvedBy struct {
+		ID          int    `json:"id"`
+		Email       string `json:"email"`
+		Name        string `json:"name"`
+		Type        string `json:"type"`
+		IsAvailable bool   `json:"is_available"`
+	} `json:"resolved_by"`
+	Customer struct {
+		UserID string `json:"user_id"`
+	} `json:"customer"`
+}
+
 func HandleAllocateAgent(c *fiber.Ctx) error {
 	payload := new(QiscusWebhookPayload)
 	if err := c.BodyParser(payload); err != nil {
@@ -182,17 +204,17 @@ func getAvailableAgents(roomID string) ([]Agent, error) {
 }
 
 func HandlerMarkAsResolvedWebhook(c *fiber.Ctx) error {
-	payload := new(QiscusWebhookPayload)
+	payload := new(MarkAsResolvedPayload)
 	if err := c.BodyParser(payload); err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": "Cannot parse JSON"})
 	}
 
-	if !payload.IsResolved {
+	if !payload.Service.IsResolved {
 		return c.Status(400).JSON(fiber.Map{"error": "Service is not resolved"})
 	}
 
-	// Decrease the agent's active room count
-	err := updateAgentRoomCount(payload.CandidateAgent.ID, -1)
+	// Decrease the agent's active room count using the ResolvedBy ID
+	err := updateAgentRoomCount(payload.ResolvedBy.ID, -1)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "Failed to update agent's room count"})
 	}

@@ -13,14 +13,6 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-type Agent struct {
-	ID                   int    `json:"id"`
-	Name                 string `json:"name"`
-	Email                string `json:"email"`
-	IsAvailable          bool   `json:"is_available"`
-	CurrentCustomerCount int    `json:"current_customer_count"`
-}
-
 type CandidateAgent struct {
 	ID                  int      `json:"id"`
 	Name                string   `json:"name"`
@@ -115,7 +107,7 @@ func HandleAllocateAgent(c *fiber.Ctx) error {
 	}
 
 	// Find an agent with less than maxCustomers
-	var selectedAgent Agent
+	var selectedAgent models.Agent
 	for _, agent := range agents {
 		if agent.CurrentCustomerCount < maxCustomers {
 			selectedAgent = agent
@@ -138,6 +130,7 @@ func HandleAllocateAgent(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": "Failed to assign agent"})
 	}
 
+	fmt.Print("done")
 	return c.JSON(fiber.Map{"message": "Agent assigned successfully", "agent_id": selectedAgent.ID})
 }
 
@@ -174,8 +167,8 @@ func assignAgent(roomID string, agentID int) error {
 	return nil
 }
 
-func getAvailableAgents(roomID string) ([]Agent, error) {
-	url := fmt.Sprintf("%s/api/v2/admin/service/available_agents?room_id=%s&is_availalble_in_room=true", os.Getenv("QISCUS_BASE_URL"), roomID)
+func getAvailableAgents(roomID string) ([]models.Agent, error) {
+	url := fmt.Sprintf("%s/api/v2/admin/service/available_agents?room_id=%s", os.Getenv("QISCUS_BASE_URL"), roomID)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -192,15 +185,13 @@ func getAvailableAgents(roomID string) ([]Agent, error) {
 	}
 	defer resp.Body.Close()
 
-	var result struct {
-		Data []Agent `json:"data"`
-	}
+	var result models.QiscusResponse
 	err = json.NewDecoder(resp.Body).Decode(&result)
 	if err != nil {
 		return nil, err
 	}
 
-	return result.Data, nil
+	return result.Data.Agents, nil
 }
 
 func HandlerMarkAsResolvedWebhook(c *fiber.Ctx) error {
@@ -276,7 +267,7 @@ func assignNextRoomInQueue() error {
 	if err != nil {
 		return err
 	}
-	var selectedAgent Agent
+	var selectedAgent models.Agent
 	for _, agent := range agents {
 		if agent.CurrentCustomerCount < maxCustomers {
 			selectedAgent = agent

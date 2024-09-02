@@ -12,6 +12,6 @@ func SetupRoutes(app *fiber.App) {
 	})
 
 	//webhook route
-	app.Post("/api/webhook", handler.HandleAllocateAgent)
+	app.Post("/api/caa", handler.HandleAllocateAgent)
 	app.Post("/api/mark_as_resolved", handler.HandlerMarkAsResolvedWebhook)
 }

@@ -130,7 +130,7 @@ func HandleAllocateAgent(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": "Failed to assign agent"})
 	}
 
-	fmt.Print("done")
+	fmt.Print("done allocating agent\n")
 	return c.JSON(fiber.Map{"message": "Agent assigned successfully", "agent_id": selectedAgent.ID})
 }
 
@@ -216,6 +216,7 @@ func HandlerMarkAsResolvedWebhook(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": "Failed to assign the next room in queue"})
 	}
 
+	fmt.Print("done mark\n")
 	return c.JSON(fiber.Map{"message": "Service marked as resolved successfully"})
 }
 

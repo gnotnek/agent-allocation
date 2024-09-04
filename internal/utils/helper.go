@@ -145,8 +145,21 @@ func AddToQueue(roomID string) error {
 func AssignAgentToRoom(db *gorm.DB, roomID string) error {
 	return db.Transaction(func(tx *gorm.DB) error {
 		var queue models.RoomQueue
+
+		// Check if the room is in the queue
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("room_id = ?", roomID).First(&queue).Error; err != nil {
-			return fmt.Errorf("failed to lock room for update: %w", err)
+			if err == gorm.ErrRecordNotFound {
+				// If the room is not in the queue, add it
+				queue = models.RoomQueue{
+					RoomID:   roomID,
+					Position: getNextQueuePosition(tx), // Get the next position in the queue
+				}
+				if err := tx.Create(&queue).Error; err != nil {
+					return fmt.Errorf("failed to add room to queue: %w", err)
+				}
+			} else {
+				return fmt.Errorf("failed to lock room for update: %w", err)
+			}
 		}
 
 		// Fetch available agents
@@ -168,11 +181,7 @@ func AssignAgentToRoom(db *gorm.DB, roomID string) error {
 		}
 
 		if selectedAgent.ID == 0 {
-			// No available agent, add to queue
-			err = AddToQueue(roomID)
-			if err != nil {
-				return err
-			}
+			// No available agent, return
 			return nil
 		}
 
@@ -190,4 +199,10 @@ func AssignAgentToRoom(db *gorm.DB, roomID string) error {
 
 		return nil
 	})
+}
+
+func getNextQueuePosition(tx *gorm.DB) int {
+	var max int
+	tx.Model(&models.RoomQueue{}).Select("COALESCE(MAX(position), 0)").Scan(&max)
+	return max + 1
 }

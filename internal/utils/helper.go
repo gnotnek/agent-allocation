@@ -10,6 +10,8 @@ import (
 
 	"github.com/gnotnek/agent-allocation/internal/database"
 	"github.com/gnotnek/agent-allocation/internal/models"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func GetAvailableAgents(roomID string) ([]models.Agent, error) {
@@ -140,12 +142,52 @@ func AddToQueue(roomID string) error {
 	return database.DB.Create(&roomQueue).Error
 }
 
-func IsInQueue(roomID string) (bool, error) {
-	var count int64
-	database.DB.Model(&models.RoomQueue{}).Where("room_id = ?", roomID).Count(&count)
-	if count > 0 {
-		return true, nil
-	}
+func AssignAgentToRoom(db *gorm.DB, roomID string) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		var queue models.RoomQueue
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("room_id = ?", roomID).First(&queue).Error; err != nil {
+			return fmt.Errorf("failed to lock room for update: %w", err)
+		}
 
-	return false, nil
+		// Fetch available agents
+		agents, err := GetAvailableAgents(queue.RoomID)
+		if err != nil {
+			return err
+		}
+
+		maxCustomers, err := strconv.Atoi(os.Getenv("MAX_CUSTOMERS"))
+		if err != nil {
+			return err
+		}
+		var selectedAgent models.Agent
+		for _, agent := range agents {
+			if agent.CurrentCustomerCount < maxCustomers {
+				selectedAgent = agent
+				break
+			}
+		}
+
+		if selectedAgent.ID == 0 {
+			// No available agent, add to queue
+			err = AddToQueue(roomID)
+			if err != nil {
+				return err
+			}
+			return nil
+		}
+
+		// Assign the selected agent
+		err = AssignAgent(queue.RoomID, selectedAgent.ID)
+		if err != nil {
+			return err
+		}
+
+		// Mark the room as assigned by setting the agent ID
+		queue.AgentID = uint(selectedAgent.ID)
+		if err := tx.Save(&queue).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
 }

@@ -2,9 +2,8 @@ package handler
 
 import (
 	"fmt"
-	"os"
-	"strconv"
 
+	"github.com/gnotnek/agent-allocation/internal/database"
 	"github.com/gnotnek/agent-allocation/internal/models"
 	helper "github.com/gnotnek/agent-allocation/internal/utils"
 	"github.com/gofiber/fiber/v2"
@@ -12,7 +11,7 @@ import (
 
 func HandleAllocateAgent(c *fiber.Ctx) error {
 	payload := new(models.QiscusWebhookPayload)
-	if err := c.BodyParser(payload); err != nil {
+	if err := c.BodyParser(&payload); err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": "Cannot parse JSON"})
 	}
 
@@ -20,59 +19,16 @@ func HandleAllocateAgent(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"message": "Conversation is already resolved."})
 	}
 
-	inQueue, err := helper.IsInQueue(payload.RoomID)
+	err := helper.AssignAgentToRoom(database.DB, payload.RoomID)
 	if err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "Failed to check if room is in queue"})
+		return c.Status(500).JSON(fiber.Map{"error": "Failed to assign agent to room"})
 	}
 
-	if inQueue {
-		return c.JSON(fiber.Map{"message": "Room is already in queue"})
-	}
-
-	// Fetch available agents
-	agents, err := helper.GetAvailableAgents(payload.RoomID)
-	if err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "Failed to fetch available agents"})
-	}
-
-	maxCustomers, err := strconv.Atoi(os.Getenv("MAX_CUSTOMERS"))
-	if err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "Failed to parse MAX_CUSTOMERS from environment"})
-	}
-
-	// Find an agent with less than maxCustomers
-	var selectedAgent models.Agent
-	customerCount := len(agents)
-	for _, agent := range agents {
-		if agent.CurrentCustomerCount >= maxCustomers {
-			continue
-		}
-		if agent.CurrentCustomerCount < customerCount {
-			selectedAgent = agent
-			customerCount = agent.CurrentCustomerCount
-		}
-	}
-
-	if selectedAgent.ID == 0 {
-		// No available agent, add to queue
-		err = helper.AddToQueue(payload.RoomID)
-		if err != nil {
-			return c.Status(500).JSON(fiber.Map{"error": "Failed to add room to queue"})
-		}
-		return c.JSON(fiber.Map{"message": "Room added to queue"})
-	}
-
-	// Assign the selected agent
-	err = helper.AssignAgent(payload.RoomID, selectedAgent.ID)
-	if err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "Failed to assign agent"})
-	}
-
-	fmt.Print("done allocating agent\n")
-	return c.JSON(fiber.Map{"message": "Agent assigned successfully", "agent_id": selectedAgent.ID})
+	fmt.Print("done allocate\n")
+	return c.JSON(fiber.Map{"message": "Agent assigned successfully"})
 }
 
-func HandlerMarkAsResolvedWebhook(c *fiber.Ctx) error {
+func HandlerMarkAsResolved(c *fiber.Ctx) error {
 	payload := new(models.MarkAsResolvedPayload)
 	if err := c.BodyParser(payload); err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": "Cannot parse JSON"})

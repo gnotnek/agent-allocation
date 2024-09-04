@@ -121,3 +121,31 @@ func AssignAgent(roomID string, agentID int) error {
 
 	return nil
 }
+
+func AddToQueue(roomID string) error {
+	var count int64
+	database.DB.Model(&models.RoomQueue{}).Where("room_id = ?", roomID).Count(&count)
+	if count > 0 {
+		return nil
+	}
+
+	var max int
+	database.DB.Model(&models.RoomQueue{}).Select("COALESCE(MAX(position), 0)").Scan(&max)
+
+	roomQueue := models.RoomQueue{
+		RoomID:   roomID,
+		Position: max + 1,
+	}
+
+	return database.DB.Create(&roomQueue).Error
+}
+
+func IsInQueue(roomID string) (bool, error) {
+	var count int64
+	database.DB.Model(&models.RoomQueue{}).Where("room_id = ?", roomID).Count(&count)
+	if count > 0 {
+		return true, nil
+	}
+
+	return false, nil
+}

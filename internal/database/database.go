@@ -32,6 +32,6 @@ func ConnectDatabase() {
 		log.Fatalf("Error connecting to database: %v", err)
 	}
 
-	db.AutoMigrate(&models.Service{}, &models.RoomQueue{})
+	db.AutoMigrate(&models.RoomQueue{})
 	DB = db
 }

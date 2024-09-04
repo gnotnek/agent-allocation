@@ -5,7 +5,6 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/gnotnek/agent-allocation/internal/database"
 	"github.com/gnotnek/agent-allocation/internal/models"
 	helper "github.com/gnotnek/agent-allocation/internal/utils"
 	"github.com/gofiber/fiber/v2"
@@ -19,6 +18,15 @@ func HandleAllocateAgent(c *fiber.Ctx) error {
 
 	if payload.IsResolved {
 		return c.JSON(fiber.Map{"message": "Conversation is already resolved."})
+	}
+
+	inQueue, err := helper.IsInQueue(payload.RoomID)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Failed to check if room is in queue"})
+	}
+
+	if inQueue {
+		return c.JSON(fiber.Map{"message": "Room is already in queue"})
 	}
 
 	// Fetch available agents
@@ -47,7 +55,7 @@ func HandleAllocateAgent(c *fiber.Ctx) error {
 
 	if selectedAgent.ID == 0 {
 		// No available agent, add to queue
-		err = addToQueue(payload.RoomID)
+		err = helper.AddToQueue(payload.RoomID)
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": "Failed to add room to queue"})
 		}
@@ -88,22 +96,4 @@ func HandlerMarkAsResolvedWebhook(c *fiber.Ctx) error {
 
 	fmt.Print("done mark\n")
 	return c.JSON(fiber.Map{"message": "Service marked as resolved successfully"})
-}
-
-func addToQueue(roomID string) error {
-	var count int64
-	database.DB.Model(&models.RoomQueue{}).Where("room_id = ?", roomID).Count(&count)
-	if count > 0 {
-		return nil
-	}
-
-	var max int
-	database.DB.Model(&models.RoomQueue{}).Select("COALESCE(MAX(position), 0)").Scan(&max)
-
-	roomQueue := models.RoomQueue{
-		RoomID:   roomID,
-		Position: max + 1,
-	}
-
-	return database.DB.Create(&roomQueue).Error
 }

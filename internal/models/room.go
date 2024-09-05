@@ -1,12 +1,14 @@
 package models
 
-import "time"
+import (
+	"time"
+)
 
 type RoomQueue struct {
-	ID        uint      `json:"id"`
-	RoomID    string    `json:"room_id" gorm:"unique"`
-	AgentID   string    `json:"agent_id"`
-	Position  int       `json:"position"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID         uint   `json:"id"`
+	RoomID     string `json:"room_id"`
+	AgentID    *int   `json:"agent_id,omitempty"` // Null if unassigned
+	IsResolved bool   `json:"is_resolved"`
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }

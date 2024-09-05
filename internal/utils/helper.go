@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -172,18 +173,27 @@ func AssignAgentToRoom(db *gorm.DB, roomID string) error {
 		if err != nil {
 			return err
 		}
-		var selectedAgent models.Agent
+
+		// Filter agents by the max customer limit and then sort by the least current customers
+		var eligibleAgents []models.Agent
 		for _, agent := range agents {
 			if agent.CurrentCustomerCount < maxCustomers {
-				selectedAgent = agent
-				break
+				eligibleAgents = append(eligibleAgents, agent)
 			}
 		}
 
-		if selectedAgent.ID == 0 {
-			// No available agent, return
-			return nil
+		// If no agents are eligible, return (could add to queue here)
+		if len(eligibleAgents) == 0 {
+			return fmt.Errorf("no available agents")
 		}
+
+		// Sort agents by their current customer count (ascending) to distribute customers fairly
+		sort.Slice(eligibleAgents, func(i, j int) bool {
+			return eligibleAgents[i].CurrentCustomerCount < eligibleAgents[j].CurrentCustomerCount
+		})
+
+		// Select the agent with the least number of customers
+		selectedAgent := eligibleAgents[0]
 
 		// Assign the selected agent
 		err = AssignAgent(queue.RoomID, selectedAgent.ID)
@@ -192,7 +202,7 @@ func AssignAgentToRoom(db *gorm.DB, roomID string) error {
 		}
 
 		// Mark the room as assigned by setting the agent ID
-		queue.AgentID = uint(selectedAgent.ID)
+		queue.AgentID = string(selectedAgent.ID)
 		if err := tx.Save(&queue).Error; err != nil {
 			return err
 		}

@@ -48,8 +48,9 @@ func HandlerMarkAsResolved(c *fiber.Ctx) error {
 	if err := c.BodyParser(payload); err != nil {
 		return fmt.Errorf("cannot parse JSON: %w", err)
 	}
+	fmt.Printf("Payload: %+v\n", payload)
 
-	// Update agent's active room count and mark the room as resolved
+	// Mark room as resolved
 	err := helper.ResolveRoom(payload.Service.RoomID)
 	if err != nil {
 		return fmt.Errorf("failed to resolve room and update agent: %w", err)

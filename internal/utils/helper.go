@@ -107,7 +107,7 @@ func AssignAgentToRoom(roomID string, agents []models.Agent) error {
 	}
 
 	if len(eligibleAgents) == 0 {
-		return nil // No available agents, leave room unassigned
+		return fmt.Errorf("no eligible agents found")
 	}
 
 	// Sort agents by least number of customers
@@ -118,7 +118,7 @@ func AssignAgentToRoom(roomID string, agents []models.Agent) error {
 	selectedAgent := eligibleAgents[0]
 	err = AssignAgent(roomID, selectedAgent.ID)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to assign agent: %w", err)
 	}
 
 	// Assign the room to the agent in the database

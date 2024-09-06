@@ -17,7 +17,7 @@ import (
 // AssignAgent assigns an agent to a room
 func AssignAgent(roomID string, agentID int) error {
 	url := fmt.Sprintf("%s/api/v1/admin/service/assign_agent", os.Getenv("QISCUS_BASE_URL"))
-	data := fmt.Sprintf("room_id=%s&agent_id=%d&replace_latest_agent=true", roomID, agentID)
+	data := fmt.Sprintf("room_id=%s&agent_id=%d", roomID, agentID)
 
 	req, err := http.NewRequest("POST", url, strings.NewReader(data))
 	if err != nil {
@@ -69,7 +69,8 @@ func GetAvailableAgents(roomID string) ([]models.Agent, error) {
 
 	return result.Data.Agents, nil
 }
-func AddRoomToQueueIfNeeded(roomID string) error {
+
+func AddRoomToQueue(roomID string) error {
 	var count int64
 	database.DB.Model(&models.RoomQueue{}).Where("room_id = ?", roomID).Count(&count)
 	if count == 0 {
@@ -82,9 +83,9 @@ func AddRoomToQueueIfNeeded(roomID string) error {
 	return nil
 }
 
-func IsRoomAssigned(roomID string) (bool, error) {
+func IsRoomAlreadyExists(roomID string) (bool, error) {
 	var queue models.RoomQueue
-	err := database.DB.Where("room_id = ? AND agent_id IS NOT NULL", roomID).First(&queue).Error
+	err := database.DB.Where("room_id = ?", roomID).First(&queue).Error
 	if err == gorm.ErrRecordNotFound {
 		return false, nil
 	}
@@ -97,7 +98,7 @@ func AssignAgentToRoom(roomID string, agents []models.Agent) error {
 		return err
 	}
 
-	// Filter agents by availability and customer count
+	// Filter eligible agents
 	var eligibleAgents []models.Agent
 	for _, agent := range agents {
 		if agent.IsAvailable && agent.CurrentCustomerCount < maxCustomers {
@@ -114,32 +115,51 @@ func AssignAgentToRoom(roomID string, agents []models.Agent) error {
 		return eligibleAgents[i].CurrentCustomerCount < eligibleAgents[j].CurrentCustomerCount
 	})
 
-	// Assign the agent with the fewest customers
 	selectedAgent := eligibleAgents[0]
-	return AssignAgent(roomID, selectedAgent.ID)
-}
+	err = AssignAgent(roomID, selectedAgent.ID)
+	if err != nil {
+		return err
+	}
 
-func ResolveRoomAndUpdateAgent(roomID string, agentID int) error {
-	// Mark the room as resolved and decrement agent's room count
-	err := database.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&models.RoomQueue{}).Where("room_id = ?", roomID).Update("is_resolved", true).Error; err != nil {
-			return err
-		}
-
-		// Decrement agent room count
-		err := UpdateAgentRoomCount(agentID, -1)
+	// Assign the room to the agent in the database
+	err = database.DB.Transaction(func(tx *gorm.DB) error {
+		err = tx.Model(&models.RoomQueue{}).Where("room_id = ?", roomID).Update("agent_id", selectedAgent.ID).Error
 		if err != nil {
 			return err
 		}
+
 		return nil
 	})
-	return err
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func ResolveRoom(roomID string) error {
+	err := database.DB.Transaction(func(tx *gorm.DB) error {
+		// Remove the room from the queue
+		err := tx.Where("room_id = ?", roomID).Delete(&models.RoomQueue{}).Error
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func AssignNextRoomFromQueue() error {
 	// Fetch the oldest unassigned room
 	var queue models.RoomQueue
-	err := database.DB.Where("agent_id IS NULL AND is_resolved = false").Order("created_at").First(&queue).Error
+	err := database.DB.Where("agent_id IS NULL").Order("created_at").First(&queue).Error
 	if err != nil {
 		return nil // No unassigned rooms
 	}
@@ -152,18 +172,4 @@ func AssignNextRoomFromQueue() error {
 
 	// Assign the room to the agent
 	return AssignAgentToRoom(queue.RoomID, agents)
-}
-
-func UpdateAgentRoomCount(agentID, delta int) error {
-	// Logic for tracking agent's room count and updating it
-	agentRoomCount := make(map[int]int)
-
-	// Update the agent's room count
-	agentRoomCount[agentID] += delta
-
-	if agentRoomCount[agentID] < 0 {
-		agentRoomCount[agentID] = 0
-	}
-
-	return nil
 }

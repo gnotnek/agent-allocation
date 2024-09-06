@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"fmt"
+
 	"github.com/gnotnek/agent-allocation/internal/models"
 	helper "github.com/gnotnek/agent-allocation/internal/utils"
 	"github.com/gofiber/fiber/v2"
@@ -9,31 +11,33 @@ import (
 func HandleAllocateAgent(c *fiber.Ctx) error {
 	payload := new(models.QiscusWebhookPayload)
 	if err := c.BodyParser(payload); err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": "Cannot parse JSON"})
+		return fmt.Errorf("cannot parse JSON: %w", err)
+	}
+
+	// Check if the room exists
+	exists, err := helper.IsRoomAlreadyExists(payload.RoomID)
+	if err != nil || !exists {
+		// pass to next step
+	} else {
+		return fmt.Errorf("room already exists: %w", err)
 	}
 
 	// Add room to queue if it doesn't exist
-	err := helper.AddRoomToQueueIfNeeded(payload.RoomID)
+	err = helper.AddRoomToQueue(payload.RoomID)
 	if err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "Failed to add room to queue"})
-	}
-
-	// Check if the room is already assigned to an agent
-	assigned, err := helper.IsRoomAssigned(payload.RoomID)
-	if err != nil || assigned {
-		return c.JSON(fiber.Map{"message": "Room already assigned to an agent"})
+		return fmt.Errorf("failed to add room to queue: %w", err)
 	}
 
 	// Get available agents
 	agents, err := helper.GetAvailableAgents(payload.RoomID)
 	if err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "Failed to fetch available agents"})
+		return fmt.Errorf("failed to get available agents: %w", err)
 	}
 
 	// Select agent with least customers and assign
 	err = helper.AssignAgentToRoom(payload.RoomID, agents)
 	if err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "Failed to assign agent to room"})
+		return fmt.Errorf("failed to assign agent to room: %w", err)
 	}
 
 	return c.JSON(fiber.Map{"message": "Agent assigned successfully"})
@@ -42,23 +46,19 @@ func HandleAllocateAgent(c *fiber.Ctx) error {
 func HandlerMarkAsResolved(c *fiber.Ctx) error {
 	payload := new(models.MarkAsResolvedPayload)
 	if err := c.BodyParser(payload); err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": "Cannot parse JSON"})
-	}
-
-	if !payload.Service.IsResolved {
-		return c.Status(400).JSON(fiber.Map{"error": "Service is not resolved"})
+		return fmt.Errorf("cannot parse JSON: %w", err)
 	}
 
 	// Update agent's active room count and mark the room as resolved
-	err := helper.ResolveRoomAndUpdateAgent(payload.Service.RoomID, payload.ResolvedBy.ID)
+	err := helper.ResolveRoom(payload.Service.RoomID)
 	if err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "Failed to resolve room and update agent"})
+		return fmt.Errorf("failed to resolve room and update agent: %w", err)
 	}
 
 	// Assign the next unassigned room in the queue
 	err = helper.AssignNextRoomFromQueue()
 	if err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "Failed to assign next room from queue"})
+		return fmt.Errorf("failed to assign next room from queue: %w", err)
 	}
 
 	return c.JSON(fiber.Map{"message": "Room resolved and next room assigned"})

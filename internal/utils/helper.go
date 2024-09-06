@@ -113,15 +113,7 @@ func AssignAgentToRoom(roomID string, agents []models.Agent) error {
 	}
 
 	// Assign the room to the agent in the database
-	err = database.DB.Transaction(func(tx *gorm.DB) error {
-		err = tx.Model(&models.RoomQueue{}).Where("room_id = ?", roomID).Update("agent_id", selectedAgent.ID).Error
-		if err != nil {
-			return err
-		}
-
-		return nil
-	})
-
+	err = database.DB.Model(&models.RoomQueue{}).Where("room_id = ?", roomID).Update("agent_id", gorm.Expr("?", selectedAgent.ID)).Error
 	if err != nil {
 		return err
 	}

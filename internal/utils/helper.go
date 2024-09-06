@@ -43,7 +43,7 @@ func AssignAgent(roomID string, agentID int) error {
 
 // GetAvailableAgents fetches available agents for a specific room
 func GetAvailableAgents(roomID string) ([]models.Agent, error) {
-	url := fmt.Sprintf("%s/api/v2/admin/service/available_agents?room_id=%s", os.Getenv("QISCUS_BASE_URL"), roomID)
+	url := fmt.Sprintf("%s/api/v2/admin/service/available_agents?room_id=%s&limit=100", os.Getenv("QISCUS_BASE_URL"), roomID)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -85,7 +85,7 @@ func AddRoomToQueue(roomID string) error {
 func AssignAgentToRoom(roomID string, agents []models.Agent) error {
 	maxCustomers, err := strconv.Atoi(os.Getenv("MAX_CUSTOMERS"))
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to convert MAX_CUSTOMERS to int: %w", err)
 	}
 
 	// Filter eligible agents
@@ -97,6 +97,7 @@ func AssignAgentToRoom(roomID string, agents []models.Agent) error {
 	}
 
 	if len(eligibleAgents) == 0 {
+		fmt.Println("No eligible agents found")
 		return fmt.Errorf("no eligible agents found")
 	}
 
@@ -117,6 +118,7 @@ func AssignAgentToRoom(roomID string, agents []models.Agent) error {
 		return err
 	}
 
+	fmt.Printf("Assigned agent %s to room %s\n", selectedAgent.Name, roomID)
 	return nil
 }
 
@@ -132,17 +134,20 @@ func ResolveRoom(roomID string) error {
 func AssignNextRoomFromQueue() error {
 	// Fetch the oldest unassigned room
 	var queue models.RoomQueue
-	err := database.DB.Where("agent_id IS NULL").Order("created_at").First(&queue).Error
+	err := database.DB.Where("agent_id IS NULL").Order("created_at asc").First(&queue).Error
 	if err != nil {
-		return nil // No unassigned rooms
+		fmt.Println(err)
+		return fmt.Errorf("failed to fetch next room from queue: %w", err)
 	}
 
 	// Get available agents
 	agents, err := GetAvailableAgents(queue.RoomID)
 	if err != nil {
-		return err
+		fmt.Println(err)
+		return fmt.Errorf("failed to get available agents: %w", err)
 	}
 
+	fmt.Printf("Assigning agent to room %s\n", queue.RoomID)
 	// Assign the room to the agent
 	return AssignAgentToRoom(queue.RoomID, agents)
 }

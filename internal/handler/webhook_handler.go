@@ -2,6 +2,7 @@ package handler
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/gnotnek/agent-allocation/internal/models"
 	helper "github.com/gnotnek/agent-allocation/internal/utils"
@@ -38,21 +39,25 @@ func HandleAllocateAgent(c *fiber.Ctx) error {
 func HandlerMarkAsResolved(c *fiber.Ctx) error {
 	payload := new(models.MarkAsResolvedPayload)
 	if err := c.BodyParser(payload); err != nil {
+		fmt.Printf("Error parsing JSON: %v\n", err)
 		return c.JSON(fiber.Map{"error": "cannot parse JSON"})
 	}
-	fmt.Printf("Payload: %+v\n", payload)
 
 	// Mark room as resolved
 	err := helper.ResolveRoom(payload.Service.RoomID)
 	if err != nil {
+		fmt.Printf("Error resolving room: %v\n", err)
 		return c.JSON(fiber.Map{"error": "failed to resolve room"})
 	}
 
+	time.Sleep(2 * time.Second)
 	// Assign the next unassigned room in the queue
 	err = helper.AssignNextRoomFromQueue()
 	if err != nil {
+		fmt.Printf("Error assigning next room: %v\n", err)
 		return c.JSON(fiber.Map{"error": "failed to assign next room"})
 	}
+	fmt.Println("Room resolved and next room assigned")
 
 	return c.JSON(fiber.Map{"message": "Room resolved and next room assigned"})
 }

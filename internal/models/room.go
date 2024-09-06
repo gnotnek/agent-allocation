@@ -5,9 +5,9 @@ import (
 )
 
 type RoomQueue struct {
-	ID        uint   `json:"id"`
-	RoomID    string `json:"room_id" gorm:"uniqueIndex"`
-	AgentID   *int   `json:"agent_id,omitempty"`
-	CreatedAt time.Time
+	ID        uint      `json:"id"`
+	RoomID    string    `json:"room_id" gorm:"uniqueIndex"`
+	AgentID   *int      `json:"agent_id,omitempty"`
+	CreatedAt time.Time `gorm:"index"`
 	UpdatedAt time.Time
 }

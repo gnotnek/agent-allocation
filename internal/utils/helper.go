@@ -11,7 +11,6 @@ import (
 
 	"github.com/gnotnek/agent-allocation/internal/database"
 	"github.com/gnotnek/agent-allocation/internal/models"
-	"gorm.io/gorm"
 )
 
 // AssignAgent assigns an agent to a room
@@ -113,7 +112,7 @@ func AssignAgentToRoom(roomID string, agents []models.Agent) error {
 	}
 
 	// Assign the room to the agent in the database
-	err = database.DB.Model(&models.RoomQueue{}).Where("room_id = ?", roomID).Update("agent_id", gorm.Expr("?", selectedAgent.ID)).Error
+	err = database.DB.Model(&models.RoomQueue{}).Where("room_id = ?", roomID).Update("agent_id", selectedAgent.ID).Error
 	if err != nil {
 		return err
 	}

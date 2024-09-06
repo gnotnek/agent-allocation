@@ -83,15 +83,6 @@ func AddRoomToQueue(roomID string) error {
 	return nil
 }
 
-func IsRoomAlreadyExists(roomID string) (bool, error) {
-	var queue models.RoomQueue
-	err := database.DB.Where("room_id = ?", roomID).First(&queue).Error
-	if err == gorm.ErrRecordNotFound {
-		return false, nil
-	}
-	return err == nil, err
-}
-
 func AssignAgentToRoom(roomID string, agents []models.Agent) error {
 	maxCustomers, err := strconv.Atoi(os.Getenv("MAX_CUSTOMERS"))
 	if err != nil {
@@ -139,16 +130,7 @@ func AssignAgentToRoom(roomID string, agents []models.Agent) error {
 }
 
 func ResolveRoom(roomID string) error {
-	err := database.DB.Transaction(func(tx *gorm.DB) error {
-		// Remove the room from the queue
-		err := tx.Where("room_id = ?", roomID).Delete(&models.RoomQueue{}).Error
-		if err != nil {
-			return err
-		}
-
-		return nil
-	})
-
+	err := database.DB.Where("room_id = ?", roomID).Delete(&models.RoomQueue{}).Error
 	if err != nil {
 		return err
 	}

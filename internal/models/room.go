@@ -6,8 +6,8 @@ import (
 
 type RoomQueue struct {
 	ID        uint   `json:"id"`
-	RoomID    string `json:"room_id"`
-	AgentID   *int   `json:"agent_id,omitempty"` // Null if unassigned
+	RoomID    string `json:"room_id" gorm:"unique"`
+	AgentID   *int   `json:"agent_id,omitempty"`
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }

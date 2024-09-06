@@ -14,16 +14,8 @@ func HandleAllocateAgent(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "cannot parse JSON"})
 	}
 
-	// Check if the room exists
-	exists, err := helper.IsRoomAlreadyExists(payload.RoomID)
-	if err != nil || !exists {
-		// pass to next step
-	} else {
-		return c.JSON(fiber.Map{"message": "Room already exists"})
-	}
-
 	// Add room to queue if it doesn't exist
-	err = helper.AddRoomToQueue(payload.RoomID)
+	err := helper.AddRoomToQueue(payload.RoomID)
 	if err != nil {
 		return c.JSON(fiber.Map{"error": "failed to add room to queue"})
 	}

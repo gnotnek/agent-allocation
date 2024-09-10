@@ -23,7 +23,7 @@ func main() {
 
 func runCron() {
 	s := gocron.NewScheduler(time.UTC)
-	s.Every(1).Minutes().Do(func() {
+	s.Every(3).Minutes().Do(func() {
 		fmt.Println("Running cron job")
 		err := cron.CronAssignAgent()
 		if err != nil {

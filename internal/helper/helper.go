@@ -122,15 +122,6 @@ func AssignAgentToRoom(roomID string, agents []models.Agent) error {
 	return nil
 }
 
-func ResolveRoom(roomID string) error {
-	err := database.DB.Where("room_id = ?", roomID).Delete(&models.RoomQueue{}).Error
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
 func AssignNextRoomFromQueue() error {
 	// Fetch the oldest unassigned room
 	var queue models.RoomQueue

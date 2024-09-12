@@ -37,7 +37,7 @@ func HandleAllocateAgent(c *fiber.Ctx) error {
 		}
 	}(payload.RoomID)
 
-	return c.JSON(fiber.Map{"message": "Agent assigned successfully"})
+	return c.JSON(fiber.Map{"message": "Room added to queue"})
 }
 
 func HandlerMarkAsResolved(c *fiber.Ctx) error {

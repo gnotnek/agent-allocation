@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gnotnek/agent-allocation/internal/database"
 	"github.com/gnotnek/agent-allocation/internal/models"
@@ -112,8 +113,8 @@ func AssignAgentToRoom(roomID string, agents []models.Agent) error {
 		return fmt.Errorf("failed to assign agent: %w", err)
 	}
 
-	// Assign the room to the agent in the database
-	err = database.DB.Model(&models.RoomQueue{}).Where("room_id = ?", roomID).Update("agent_id", selectedAgent.ID).Error
+	// Assign the room to the agent in the database and update the assigned_at field
+	err = database.DB.Model(&models.RoomQueue{}).Where("room_id = ?", roomID).Updates(map[string]interface{}{"agent_id": selectedAgent.ID, "assigned_at": time.Now()}).Error
 	if err != nil {
 		return err
 	}
@@ -141,4 +142,9 @@ func AssignNextRoomFromQueue() error {
 	fmt.Printf("Assigning agent to room %s\n", queue.RoomID)
 	// Assign the room to the agent
 	return AssignAgentToRoom(queue.RoomID, agents)
+}
+
+func MarkRoomAsResolved(roomID string) error {
+	// Update the resolved_at field in the database
+	return database.DB.Model(&models.RoomQueue{}).Where("room_id = ?", roomID).Update("resolved_at", time.Now()).Error
 }

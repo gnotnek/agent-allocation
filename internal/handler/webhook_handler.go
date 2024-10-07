@@ -48,8 +48,13 @@ func HandlerMarkAsResolved(c *fiber.Ctx) error {
 	}
 
 	go func() {
+		err := helper.MarkRoomAsResolved(payload.Service.RoomID)
+		if err != nil {
+			fmt.Printf("Error marking room as resolved: %v\n", err)
+		}
+
 		// Assign the next unassigned room in the queue
-		err := helper.AssignNextRoomFromQueue()
+		err = helper.AssignNextRoomFromQueue()
 		if err != nil {
 			fmt.Printf("Error assigning next room: %v\n", err)
 		}
